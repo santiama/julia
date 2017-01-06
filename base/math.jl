@@ -32,7 +32,7 @@ using Base: sign_mask, exponent_mask, exponent_one, exponent_bias,
             exponent_half, exponent_max, exponent_raw_max, fpinttype,
             significand_mask, significand_bits, exponent_bits
 
-using Core.Intrinsics: sqrt_llvm, powi_llvm
+using Core.Intrinsics: sqrt_llvm
 
 # non-type specific math functions
 
@@ -677,14 +677,11 @@ function modf(x::Float64)
     f, _modf_temp[]
 end
 
-^(x::Float64, y::Float64) = nan_dom_err(ccall((:pow,libm),  Float64, (Float64,Float64), x, y), x+y)
-^(x::Float32, y::Float32) = nan_dom_err(ccall((:powf,libm), Float32, (Float32,Float32), x, y), x+y)
-
-^(x::Float64, y::Integer) = x^Int32(y)
-^(x::Float64, y::Int32) = powi_llvm(x, y)
-^(x::Float32, y::Integer) = x^Int32(y)
-^(x::Float32, y::Int32) = powi_llvm(x, y)
-^(x::Float16, y::Integer) = Float16(Float32(x)^y)
+^(x::Float64, y::Float64) = nan_dom_err(ccall("llvm.pow.f64", llvmcall, Float64, (Float64, Float64), x, y), x + y)
+^(x::Float32, y::Float32) = nan_dom_err(ccall("llvm.pow.f32", llvmcall, Float32, (Float32, Float32), x, y), x + y)
+^(x::Float64, y::Integer) = x ^ Float64(y)
+^(x::Float32, y::Integer) = x ^ Float32(y)
+^(x::Float16, y::Integer) = Float16(Float32(x) ^ Float32(y))
 
 function angle_restrict_symm(theta)
     const P1 = 4 * 7.8539812564849853515625e-01
