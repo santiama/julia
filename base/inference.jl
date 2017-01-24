@@ -791,23 +791,36 @@ function getfield_tfunc(s00::ANY, name)
 end
 add_tfunc(getfield, 2, 2, (s::ANY, name::ANY) -> getfield_tfunc(s, name))
 add_tfunc(setfield!, 3, 3, (o::ANY, f::ANY, v::ANY) -> v)
-function fieldtype_tfunc(s::ANY, name::ANY)
-    if isa(s, Const)
-        s = s.val
-    elseif isType(s)
-        s = s.parameters[1]
-    else
-        return Type
+function fieldtype_tfunc(s0::ANY, name::ANY)
+    s = instanceof_tfunc(s0)
+    exact = (isa(s0, Const) || isType(s0)) && !has_free_typevars(s)
+    if isa(name, Const)
+        fld = name.val
+        if !isa(fld, Int) && !isa(fld, Symbol)
+            return Bottom
+        end
+        if exact
+            ft = nothing
+            try
+                ft = fieldtype(s, fld)
+            catch
+            end
+            if ft !== nothing
+                if isleaftype(ft) || ft === Bottom
+                    return Const(ft)
+                else
+                    return Type{ft}
+                end
+            end
+        end
     end
     t = getfield_tfunc(s, name)
     if t === Bottom
-        return t
+        return Const(Bottom)  # result is actually Union{Bottom, Const(Bottom)}
     elseif isa(t, Const)
         return Const(typeof(t.val))
     elseif isleaftype(t)
         return Const(t)
-    elseif isvarargtype(t)
-        return Type{t}
     end
     return Type{_} where _<:t
 end

@@ -327,8 +327,8 @@ let T = Array{Tuple{Vararg{Float64,dim}}, 1} where dim,
 
     @test f16530a() == T
     @test f16530a(:c) == T
-    @test Base.return_types(f16530a, ()) == Any[TTlim]
-    @test Base.return_types(f16530b, ()) == Any[TTlim]
+    @test Base.return_types(f16530a, ()) == Any[Type{T}]
+    @test Base.return_types(f16530b, ()) == Any[Type{T}]
     @test Base.return_types(f16530b, (Symbol,)) == Any[TTlim]
 end
 @test f16530a(:d) == Vector
@@ -481,6 +481,20 @@ function maybe_vararg_tuple_2()
     Tuple{x}
 end
 @test Type{Tuple{Vararg{Int}}} <: Base.return_types(maybe_vararg_tuple_2, ())[1]
+
+# inference of `fieldtype`
+type UndefField__
+    x::Union{}
+end
+f_infer_undef_field() = fieldtype(UndefField__, :x)
+@test Base.return_types(f_infer_undef_field, ()) == Any[Type{Union{}}]
+@test f_infer_undef_field() === Union{}
+
+type HasAbstractlyTypedField
+    x::Union{Int,String}
+end
+f_infer_abstract_fieldtype() = fieldtype(HasAbstractlyTypedField, :x)
+@test Base.return_types(f_infer_abstract_fieldtype, ()) == Any[Type{Union{Int,String}}]
 
 # Issue 19641
 foo19641() = let a = 1.0
