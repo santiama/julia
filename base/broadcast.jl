@@ -15,6 +15,13 @@ typealias ScalarType Union{Type{Any}, Type{Nullable}}
 # fallbacks for some special cases
 @inline broadcast(f, x::Number...) = f(x...)
 @inline broadcast{N}(f, t::NTuple{N,Any}, ts::Vararg{NTuple{N,Any}}) = map(f, t, ts...)
+function broadcast!{T,S,N}(::typeof(identity), x::Array{T,N}, y::Array{S,N})
+    if size(x) == size(y)
+        copy!(x, y)
+    else
+        Broadcast.broadcast_c!(identity, Array, Array, x, y)
+    end
+end
 
 # special cases for "X .= ..." (broadcast!) assignments
 broadcast!(::typeof(identity), X::AbstractArray, x::Number) = fill!(X, x)
