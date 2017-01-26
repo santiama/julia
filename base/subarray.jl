@@ -21,11 +21,11 @@ function SubArray(parent::AbstractArray, indexes::Tuple)
     @_inline_meta
     SubArray(linearindexing(viewindexing(indexes), linearindexing(parent)), parent, ensure_indexable(indexes), index_dimsum(indexes...))
 end
-function SubArray{P, I, N}(::LinearSlow, parent::P, indexes::I, ::NTuple{N})
+function SubArray{P, I, N}(::LinearSlow, parent::P, indexes::I, ::NTuple{N,Any})
     @_inline_meta
     SubArray{eltype(P), N, P, I, false}(parent, indexes, 0, 0)
 end
-function SubArray{P, I, N}(::LinearFast, parent::P, indexes::I, ::NTuple{N})
+function SubArray{P, I, N}(::LinearFast, parent::P, indexes::I, ::NTuple{N,Any})
     @_inline_meta
     # Compute the stride and offset
     stride1 = compute_stride1(parent, indexes)
@@ -74,6 +74,7 @@ parentindexes(a::AbstractArray) = ntuple(i->OneTo(size(a,i)), ndims(a))
 # ReshapedArray view if necessary. The trouble is that arrays of `CartesianIndex`
 # can make the number of effective indices not equal to length(I).
 _maybe_reshape_parent(A::AbstractArray, ::NTuple{1, Bool}) = reshape(A, Val{1})
+_maybe_reshape_parent{_}(A::AbstractArray{_,1}, ::NTuple{1, Bool}) = reshape(A, Val{1})
 _maybe_reshape_parent{_,N}(A::AbstractArray{_,N}, ::NTuple{N, Bool}) = A
 _maybe_reshape_parent{N}(A::AbstractArray, ::NTuple{N, Bool}) = reshape(A, Val{N}) # TODO: DEPRECATE FOR #14770
 """
@@ -214,7 +215,7 @@ substrides(s, parent, dim, I::Tuple{Any, Vararg{Any}}) = throw(ArgumentError("st
 
 stride(V::SubArray, d::Integer) = d <= ndims(V) ? strides(V)[d] : strides(V)[end] * size(V)[end]
 
-compute_stride1{N}(parent::AbstractArray, I::NTuple{N}) =
+compute_stride1{N}(parent::AbstractArray, I::NTuple{N,Any}) =
     (@_inline_meta; compute_stride1(1, fill_to_length(indices(parent), OneTo(1), Val{N}), I))
 compute_stride1(s, inds, I::Tuple{}) = s
 compute_stride1(s, inds, I::Tuple{ScalarIndex, Vararg{Any}}) =
@@ -247,7 +248,7 @@ compute_offset1(parent, stride1::Integer, dims::Tuple{Int}, inds::Tuple{Slice}, 
 compute_offset1(parent, stride1::Integer, dims, inds, I::Tuple) =
     (@_inline_meta; compute_linindex(parent, I) - stride1)  # linear indexing starts with 1
 
-function compute_linindex{N}(parent, I::NTuple{N})
+function compute_linindex{N}(parent, I::NTuple{N,Any})
     @_inline_meta
     IP = fill_to_length(indices(parent), OneTo(1), Val{N})
     compute_linindex(1, 1, IP, I)
@@ -380,7 +381,8 @@ end
 
 Creates a `SubArray` from an indexing expression. This can only be applied directly to a
 reference expression (e.g. `@view A[1,2:end]`), and should *not* be used as the target of
-an assignment (e.g. `@view(A[1,2:end]) = ...`).
+an assignment (e.g. `@view(A[1,2:end]) = ...`).  See also [`@views`](@ref)
+to switch an entire block of code to use views for slicing.
 """
 macro view(ex)
     if isa(ex, Expr) && ex.head == :ref
@@ -389,4 +391,53 @@ macro view(ex)
     else
         throw(ArgumentError("Invalid use of @view macro: argument must be a reference expression A[...]."))
     end
+end
+
+############################################################################
+# @views macro code:
+
+# maybeview is like getindex, but returns a view for slicing operations
+# (while remaining equivalent to getindex for scalar indices and non-array types)
+@propagate_inbounds maybeview(A, args...) = getindex(A, args...)
+@propagate_inbounds maybeview(A::AbstractArray, args...) = view(A, args...)
+@propagate_inbounds maybeview(A::AbstractArray, args::Number...) = getindex(A, args...)
+@propagate_inbounds maybeview(A) = getindex(A)
+@propagate_inbounds maybeview(A::AbstractArray) = getindex(A)
+
+_views(x) = x
+_views(x::Symbol) = esc(x)
+function _views(ex::Expr)
+    if ex.head in (:(=), :(.=))
+        # don't use view on the lhs of an assignment
+        Expr(ex.head, esc(ex.args[1]), _views(ex.args[2]))
+    elseif ex.head == :ref
+        ex = replace_ref_end!(ex)
+        Expr(:call, :maybeview, _views.(ex.args)...)
+    else
+        h = string(ex.head)
+        if last(h) == '='
+            # don't use view on the lhs of an op-assignment
+            Expr(first(h) == '.' ? :(.=) : :(=), esc(ex.args[1]),
+                 Expr(:call, esc(Symbol(h[1:end-1])), _views.(ex.args)...))
+        else
+            Expr(ex.head, _views.(ex.args)...)
+        end
+    end
+end
+
+"""
+    @views expression
+
+Convert every array-slicing operation in the given expression
+(which may be a `begin`/`end` block, loop, function, etc.)
+to return a view.   Scalar indices, non-array types, and
+explicit `getindex` calls (as opposed to `array[...]`) are
+unaffected.
+
+Note that the `@views` macro only affects `array[...]` expressions
+that appear explicitly in the given `expression`, not array slicing that
+occurs in functions called by that code.
+"""
+macro views(x)
+    _views(x)
 end

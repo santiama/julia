@@ -14,7 +14,7 @@ typealias ScalarType Union{Type{Any}, Type{Nullable}}
 ## Broadcasting utilities ##
 # fallbacks for some special cases
 @inline broadcast(f, x::Number...) = f(x...)
-@inline broadcast{N}(f, t::NTuple{N}, ts::Vararg{NTuple{N}}) = map(f, t, ts...)
+@inline broadcast{N}(f, t::NTuple{N,Any}, ts::Vararg{NTuple{N,Any}}) = map(f, t, ts...)
 
 # special cases for "X .= ..." (broadcast!) assignments
 broadcast!(::typeof(identity), X::AbstractArray, x::Number) = fill!(X, x)
@@ -328,7 +328,7 @@ the following rules:
  - If the arguments are tuples and zero or more scalars, it returns a tuple.
  - If the arguments contain at least one array or `Ref`, it returns an array
    (expanding singleton dimensions), and treats `Ref`s as 0-dimensional arrays,
-   and tuples as a 1-dimensional arrays.
+   and tuples as 1-dimensional arrays.
 
 The following additional rule applies to `Nullable` arguments: If there is at
 least one `Nullable`, and all the arguments are scalars or `Nullable`, it
@@ -503,16 +503,8 @@ end
 # explicit calls to view.   (All of this can go away if slices
 # are changed to generate views by default.)
 
-dotview(args...) = getindex(args...)
-dotview(A::AbstractArray, args...) = view(A, args...)
-dotview{T<:AbstractArray}(A::AbstractArray{T}, args...) = getindex(A, args...)
-# avoid splatting penalty in common cases:
-for nargs = 0:5
-    args = Symbol[Symbol("x",i) for i = 1:nargs]
-    eval(Expr(:(=), Expr(:call, :dotview, args...),
-                    Expr(:call, :getindex, args...)))
-    eval(Expr(:(=), Expr(:call, :dotview, :(A::AbstractArray), args...),
-                    Expr(:call, :view, :A, args...)))
-end
+Base.@propagate_inbounds dotview(args...) = getindex(args...)
+Base.@propagate_inbounds dotview(A::AbstractArray, args...) = view(A, args...)
+Base.@propagate_inbounds dotview{T<:AbstractArray}(A::AbstractArray{T}, args...) = getindex(A, args...)
 
 end # module

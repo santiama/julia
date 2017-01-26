@@ -98,6 +98,7 @@ export
     RoundNearestTiesUp,
     RoundToZero,
     RoundUp,
+    RowVector,
     AbstractSerializer,
     SerializationState,
     Set,
@@ -396,6 +397,7 @@ export
     reim,
     reinterpret,
     rem,
+    rem2pi,
     round,
     sec,
     secd,
@@ -885,7 +887,6 @@ export
     median!,
     median,
     middle,
-    midpoints,
     quantile!,
     quantile,
     std,
@@ -954,14 +955,12 @@ export
 
 # tasks and conditions
     Condition,
-    consume,
     current_task,
     islocked,
     istaskdone,
     istaskstarted,
     lock,
     notify,
-    produce,
     ReentrantLock,
     schedule,
     task_local_storage,
@@ -981,6 +980,8 @@ export
 # dates
     Date,
     DateTime,
+    DateFormat,
+    @dateformat_str,
     now,
 
 # errors
@@ -1385,6 +1386,7 @@ export
     @label,
     @goto,
     @view,
+    @views,
 
 # SparseArrays module re-exports
     SparseArrays,

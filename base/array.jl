@@ -25,6 +25,15 @@ typealias DenseVecOrMat{T} Union{DenseVector{T}, DenseMatrix{T}}
 
 import Core: arraysize, arrayset, arrayref
 
+"""
+    Array{T,N}(dims)
+
+Construct an uninitialized `N`-dimensional dense array with element type `T`. `dims` may
+be a tuple or a series of integer arguments corresponding to the length in each dimension.
+If the rank `N` is omitted, i.e. `Array{T}(dims)`, the rank is determined based on `dims`.
+"""
+Array
+
 vect() = Array{Any,1}(0)
 vect{T}(X::T...) = T[ X[i] for i=1:length(X) ]
 
@@ -996,6 +1005,10 @@ end
 
 
 # concatenations of homogeneous combinations of vectors, horizontal and vertical
+
+vcat() = Array{Any,1}(0)
+hcat() = Array{Any,1}(0)
+
 function hcat{T}(V::Vector{T}...)
     height = length(V[1])
     for j = 2:length(V)

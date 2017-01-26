@@ -447,39 +447,6 @@ See also [`zeros`](@ref), [`similar`](@ref).
 ones
 
 """
-    reshape(A, dims)
-
-Create an array with the same data as the given array, but with different dimensions.
-
-```jldoctest
-julia> A = collect(1:16)
-16-element Array{Int64,1}:
-  1
-  2
-  3
-  4
-  5
-  6
-  7
-  8
-  9
- 10
- 11
- 12
- 13
- 14
- 15
- 16
-
-julia> reshape(A, (2, 8))
-2×8 Array{Int64,2}:
- 1  3  5  7   9  11  13  15
- 2  4  6  8  10  12  14  16
-```
-"""
-reshape
-
-"""
     randsubseq!(S, A, p)
 
 Like [`randsubseq`](@ref), but the results are stored in `S`
@@ -505,10 +472,10 @@ redisplay
 """
     searchsorted(a, x, [by=<transform>,] [lt=<comparison>,] [rev=false])
 
-Returns the range of indices of `a` which compare as equal to `x` according to the order
-specified by the `by`, `lt` and `rev` keywords, assuming that `a` is already sorted in that
-order. Returns an empty range located at the insertion point if `a` does not contain values
-equal to `x`.
+Returns the range of indices of `a` which compare as equal to `x` (using binary search)
+according to the order specified by the `by`, `lt` and `rev` keywords, assuming that `a`
+is already sorted in that order. Returns an empty range located at the insertion point
+if `a` does not contain values equal to `x`.
 """
 searchsorted
 
@@ -1677,15 +1644,6 @@ by `show` generally includes Julia-specific formatting and type information.
 show(x)
 
 """
-    Array(dims)
-
-`Array{T}(dims)` constructs an uninitialized dense array with element type `T`. `dims` may
-be a tuple or a series of integer arguments. The syntax `Array(T, dims)` is also available,
-but deprecated.
-"""
-Array
-
-"""
     issubtype(type1, type2)
 
 Return `true` if and only if all values of `type1` are also of `type2`. Can also be written
@@ -2227,14 +2185,6 @@ Convert a number to an unsigned integer. If the argument is signed, it is reinte
 unsigned without checking for negative values.
 """
 unsigned
-
-"""
-    midpoints(e)
-
-Compute the midpoints of the bins with edges `e`. The result is a vector/range of length
-`length(e) - 1`. Note: Julia does not ignore `NaN` values in the computation.
-"""
-midpoints
 
 """
     reverseind(v, i)

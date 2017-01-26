@@ -59,40 +59,40 @@ end
 function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
-        ln = Int(unsafe_load(cglobal(:jl_lineno, Cint)))
-        fn = unsafe_string(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
         bt = backtrace()
-        caller = firstcaller(bt, funcsym)
-        if opts.depwarn == 1 # raise a warning
-            warn(msg, once=(caller != C_NULL), key=caller, bt=bt,
-                 filename=fn, lineno=ln)
-        elseif opts.depwarn == 2 # raise an error
-            throw(ErrorException(msg))
-        end
+        _depwarn(msg, opts, bt, firstcaller(bt, funcsym))
     end
     nothing
 end
+function _depwarn(msg, opts, bt, caller)
+    ln = Int(unsafe_load(cglobal(:jl_lineno, Cint)))
+    fn = unsafe_string(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
+    if opts.depwarn == 1 # raise a warning
+        warn(msg, once=(caller != StackTraces.UNKNOWN), key=(caller,fn,ln), bt=bt,
+             filename=fn, lineno=ln)
+    elseif opts.depwarn == 2 # raise an error
+        throw(ErrorException(msg))
+    end
+end
 
-function firstcaller(bt::Array{Ptr{Void},1}, funcsym::Symbol)
+firstcaller(bt::Array{Ptr{Void},1}, funcsym::Symbol) = firstcaller(bt, (funcsym,))
+function firstcaller(bt::Array{Ptr{Void},1}, funcsyms)
     # Identify the calling line
-    i = 1
-    while i <= length(bt)
-        lkups = StackTraces.lookup(bt[i])
-        i += 1
+    found = false
+    lkup = StackTraces.UNKNOWN
+    for frame in bt
+        lkups = StackTraces.lookup(frame)
         for lkup in lkups
             if lkup === StackTraces.UNKNOWN
                 continue
             end
-            if lkup.func == funcsym
-                @goto found
-            end
+            found && @goto found
+            found = lkup.func in funcsyms
         end
     end
+    return StackTraces.UNKNOWN
     @label found
-    if i <= length(bt)
-        return bt[i]
-    end
-    return C_NULL
+    return lkup
 end
 
 deprecate(s::Symbol) = deprecate(current_module(), s)
@@ -125,14 +125,14 @@ end
 @deprecate get_rounding rounding
 
 #13465
-@deprecate cov(x::AbstractVector; corrected=true, mean=Base.mean(x)) Base.covm(x, mean, corrected)
-@deprecate cov(X::AbstractMatrix; vardim=1, corrected=true, mean=Base.mean(X, vardim)) Base.covm(X, mean, vardim, corrected)
-@deprecate cov(x::AbstractVector, y::AbstractVector; corrected=true, mean=(Base.mean(x), Base.mean(y))) Base.covm(x, mean[1], y, mean[2], corrected)
+#@deprecate cov(x::AbstractVector; corrected=true, mean=Base.mean(x)) Base.covm(x, mean, corrected)
+#@deprecate cov(X::AbstractMatrix; vardim=1, corrected=true, mean=Base.mean(X, vardim)) Base.covm(X, mean, vardim, corrected)
+#@deprecate cov(x::AbstractVector, y::AbstractVector; corrected=true, mean=(Base.mean(x), Base.mean(y))) Base.covm(x, mean[1], y, mean[2], corrected)
 @deprecate cov(X::AbstractVecOrMat, Y::AbstractVecOrMat; vardim=1, corrected=true, mean=(Base.mean(X, vardim), Base.mean(Y, vardim))) Base.covm(X, mean[1], Y, mean[2], vardim, corrected)
 
-@deprecate cor(x::AbstractVector; mean=Base.mean(x)) Base.corm(x, mean)
-@deprecate cor(X::AbstractMatrix; vardim=1, mean=Base.mean(X, vardim)) Base.corm(X, mean, vardim)
-@deprecate cor(x::AbstractVector, y::AbstractVector; mean=(Base.mean(x), Base.mean(y))) Base.corm(x, mean[1], y, mean[2])
+#@deprecate cor(x::AbstractVector; mean=Base.mean(x)) Base.corm(x, mean)
+#@deprecate cor(X::AbstractMatrix; vardim=1, mean=Base.mean(X, vardim)) Base.corm(X, mean, vardim)
+#@deprecate cor(x::AbstractVector, y::AbstractVector; mean=(Base.mean(x), Base.mean(y))) Base.corm(x, mean[1], y, mean[2])
 @deprecate cor(X::AbstractVecOrMat, Y::AbstractVecOrMat; vardim=1, mean=(Base.mean(X, vardim), Base.mean(Y, vardim))) Base.corm(X, mean[1], Y, mean[2], vardim)
 
 @deprecate_binding SparseMatrix SparseArrays
@@ -268,10 +268,6 @@ export call
 # #12872
 @deprecate istext istextmime
 
-#15409
-# Deprecated definition of pmap with keyword arguments.
-# deprecation warnings are in pmap.jl
-
 # 15692
 typealias Func{N} Function
 deprecate(:Func)
@@ -315,8 +311,8 @@ for (Fun, func) in [(:IdFun, :identity),
         (::Type{typeof($(func))})() = $(func)
     end
 end
-@deprecate_binding CentralizedAbs2Fun typeof(centralizedabs2fun(0)).name.primary
-(::Type{typeof(centralizedabs2fun(0)).name.primary})(m::Number) = centralizedabs2fun(m)
+@deprecate_binding CentralizedAbs2Fun typeof(centralizedabs2fun(0)).name.wrapper
+(::Type{typeof(centralizedabs2fun(0)).name.wrapper})(m::Number) = centralizedabs2fun(m)
 @deprecate specialized_unary(f::Function) f
 @deprecate specialized_binary(f::Function) f
 @deprecate specialized_bitwise_unary(f::Function) f
@@ -591,10 +587,6 @@ function histrange{T<:Integer,N}(v::AbstractArray{T,N}, n::Integer)
     nm1 = ceil(Int,(hi - start)/step)
     start:step:(start + nm1*step)
 end
-
-## midpoints of intervals
-midpoints(r::Range) = r[1:length(r)-1] + 0.5*step(r)
-midpoints(v::AbstractVector) = [0.5*(v[i] + v[i+1]) for i in 1:length(v)-1]
 
 ## hist ##
 function sturges(n)  # Sturges' formula
@@ -1028,6 +1020,9 @@ export $
 
 @deprecate is (===)
 
+# midpoints of intervals
+@deprecate midpoints(r::Range) r[1:length(r)-1] + 0.5*step(r)
+@deprecate midpoints(v::AbstractVector) [0.5*(v[i] + v[i+1]) for i in 1:length(v)-1]
 
 @deprecate_binding Filter    Iterators.Filter
 @deprecate_binding Zip       Iterators.Zip
@@ -1541,6 +1536,9 @@ function frexp{T<:AbstractFloat}(A::Array{T})
     return (F, E)
 end
 
+# Deprecate reducing isinteger over arrays
+@deprecate isinteger(A::AbstractArray) all(isinteger, A)
+
 # Deprecate promote_eltype_op (#19814, #19937)
 _promote_eltype_op(::Any) = Any
 _promote_eltype_op(op, A) = (@_inline_meta; promote_op(op, eltype(A)))
@@ -1625,6 +1623,7 @@ function produce(v)
     end
 end
 produce(v...) = produce(v)
+export produce
 
 function consume(P::Task, values...)
     depwarn("consume is now deprecated. Use Channels for inter-task communication.", :consume)
@@ -1655,6 +1654,7 @@ function consume(P::Task, values...)
 
     P.state == :runnable ? schedule_and_wait(P) : wait() # don't attempt to queue it twice
 end
+export consume
 
 function start(t::Task)
     depwarn(string("Task iteration is now deprecated.",
@@ -1674,5 +1674,175 @@ isempty(::Task) = error("isempty not defined for Tasks")
 
 # FloatRange replaced by StepRangeLen
 @deprecate FloatRange{T}(start::T, step, len, den) Base.floatrange(T, start, step, len, den)
+
+eval(Base.Test, quote
+    approx_full(x::AbstractArray) = x
+    approx_full(x::Number) = x
+    approx_full(x) = full(x)
+
+    function test_approx_eq(va, vb, Eps, astr, bstr)
+        va = approx_full(va)
+        vb = approx_full(vb)
+        la, lb = length(linearindices(va)), length(linearindices(vb))
+        if la != lb
+            error("lengths of ", astr, " and ", bstr, " do not match: ",
+                "\n  ", astr, " (length $la) = ", va,
+                "\n  ", bstr, " (length $lb) = ", vb)
+        end
+        diff = real(zero(eltype(va)))
+        for (xa, xb) = zip(va, vb)
+            if isfinite(xa) && isfinite(xb)
+                diff = max(diff, abs(xa-xb))
+            elseif !isequal(xa,xb)
+                error("mismatch of non-finite elements: ",
+                    "\n  ", astr, " = ", va,
+                    "\n  ", bstr, " = ", vb)
+            end
+        end
+
+        if !isnan(Eps) && !(diff <= Eps)
+            sdiff = string("|", astr, " - ", bstr, "| <= ", Eps)
+            error("assertion failed: ", sdiff,
+                "\n  ", astr, " = ", va,
+                "\n  ", bstr, " = ", vb,
+                "\n  difference = ", diff, " > ", Eps)
+        end
+    end
+
+    array_eps{T}(a::AbstractArray{Complex{T}}) = eps(float(maximum(x->(isfinite(x) ? abs(x) : T(NaN)), a)))
+    array_eps(a) = eps(float(maximum(x->(isfinite(x) ? abs(x) : oftype(x,NaN)), a)))
+
+    test_approx_eq(va, vb, astr, bstr) =
+        test_approx_eq(va, vb, 1E4*length(linearindices(va))*max(array_eps(va), array_eps(vb)), astr, bstr)
+
+    """
+        @test_approx_eq_eps(a, b, tol)
+
+    Test two floating point numbers `a` and `b` for equality taking into account
+    a margin of tolerance given by `tol`.
+    """
+    macro test_approx_eq_eps(a, b, c)
+        Base.depwarn(string("@test_approx_eq_eps is deprecated, use `@test ", a, " ≈ ", b, " atol=", c, "` instead"),
+                    Symbol("@test_approx_eq_eps"))
+        :(test_approx_eq($(esc(a)), $(esc(b)), $(esc(c)), $(string(a)), $(string(b))))
+    end
+    export @test_approx_eq_eps
+
+    """
+        @test_approx_eq(a, b)
+
+    Deprecated. Test two floating point numbers `a` and `b` for equality taking into
+    account small numerical errors.
+    """
+    macro test_approx_eq(a, b)
+        Base.depwarn(string("@test_approx_eq is deprecated, use `@test ", a, " ≈ ", b, "` instead"),
+                    Symbol("@test_approx_eq"))
+        :(test_approx_eq($(esc(a)), $(esc(b)), $(string(a)), $(string(b))))
+    end
+    export @test_approx_eq
+end)
+
+# Deprecate partial linear indexing
+function partial_linear_indexing_warning_lookup(nidxs_remaining)
+    # We need to figure out how many indices were passed for a sensible deprecation warning
+    opts = JLOptions()
+    if opts.depwarn > 0
+        # Find the caller -- this is very expensive so we don't want to do it twice
+        bt = backtrace()
+        found = false
+        call = StackTraces.UNKNOWN
+        caller = StackTraces.UNKNOWN
+        for frame in bt
+            lkups = StackTraces.lookup(frame)
+            for caller in lkups
+                if caller === StackTraces.UNKNOWN
+                    continue
+                end
+                found && @goto found
+                if caller.func in (:getindex, :setindex!, :view)
+                    found = true
+                    call = caller
+                end
+            end
+        end
+        @label found
+        fn = "`reshape`"
+        if call != StackTraces.UNKNOWN && !isnull(call.linfo)
+            # Try to grab the number of dimensions in the parent array
+            mi = get(call.linfo)
+            args = mi.specTypes.parameters
+            if length(args) >= 2 && args[2] <: AbstractArray
+                fn = "`reshape(A, Val{$(ndims(args[2]) - nidxs_remaining + 1)})`"
+            end
+        end
+        _depwarn("Partial linear indexing is deprecated. Use $fn to make the dimensionality of the array match the number of indices.", opts, bt, caller)
+    end
+end
+function partial_linear_indexing_warning(n)
+    depwarn("Partial linear indexing is deprecated. Use `reshape(A, Val{$n})` to make the dimensionality of the array match the number of indices.", (:getindex, :setindex!, :view))
+end
+
+# Deprecate Array(T, dims...) in favor of proper type constructors
+@deprecate Array{T,N}(::Type{T}, d::NTuple{N,Int})               Array{T,N}(d)
+@deprecate Array{T}(::Type{T}, d::Int...)                        Array{T,length(d)}(d...)
+@deprecate Array{T}(::Type{T}, m::Int)                           Array{T,1}(m)
+@deprecate Array{T}(::Type{T}, m::Int,n::Int)                    Array{T,2}(m,n)
+@deprecate Array{T}(::Type{T}, m::Int,n::Int,o::Int)             Array{T,3}(m,n,o)
+@deprecate Array{T}(::Type{T}, d::Integer...)                    Array{T,length(d)}(convert(Tuple{Vararg{Int}}, d))
+@deprecate Array{T}(::Type{T}, m::Integer)                       Array{T,1}(Int(m))
+@deprecate Array{T}(::Type{T}, m::Integer,n::Integer)            Array{T,2}(Int(m),Int(n))
+@deprecate Array{T}(::Type{T}, m::Integer,n::Integer,o::Integer) Array{T,3}(Int(m),Int(n),Int(o))
+
+# Likewise for SharedArrays
+@deprecate SharedArray{T,N}(::Type{T}, dims::Dims{N}; kwargs...) SharedArray{T,N}(dims; kwargs...)
+@deprecate SharedArray{T}(::Type{T}, dims::Int...; kwargs...)    SharedArray{T,length(dims)}(dims...; kwargs...)
+@deprecate(SharedArray{T,N}(filename::AbstractString, ::Type{T}, dims::NTuple{N,Int}, offset; kwargs...),
+           SharedArray{T,N}(filename, dims, offset; kwargs...))
+@deprecate(SharedArray{T}(filename::AbstractString, ::Type{T}, dims::NTuple, offset; kwargs...),
+           SharedArray{T,length(dims)}(filename, dims, offset; kwargs...))
+
+@noinline function is_intrinsic_expr(x::ANY)
+    Base.depwarn("is_intrinsic_expr is deprecated. There are no intrinsic functions anymore.", :is_intrinsic_expr)
+    return false
+end
+
+# Not exported
+eval(LibGit2, quote
+    function owner(x)
+        Base.depwarn("owner(x) is deprecated, use repository(x) instead.", :owner)
+        repository(x)
+    end
+end)
+
+@deprecate EachLine(stream, ondone) EachLine(stream, ondone=ondone)
+
+# These conversions should not be defined, see #19896
+@deprecate convert{T<:Number}(::Type{T}, x::Dates.Period) convert(T, Dates.value(x))
+@deprecate convert{T<:Dates.Period}(::Type{T}, x::Real)   T(x)
+@deprecate convert{R<:Real}(::Type{R}, x::Dates.DateTime) R(Dates.value(x))
+@deprecate convert{R<:Real}(::Type{R}, x::Dates.Date)     R(Dates.value(x))
+@deprecate convert(::Type{Dates.DateTime}, x::Real)       Dates.DateTime(Dates.Millisecond(x))
+@deprecate convert(::Type{Dates.Date}, x::Real)           Dates.Date(Dates.Day(x))
+
+function colon{T<:Dates.Period}(start::T, stop::T)
+    depwarn("$start:$stop is deprecated, use $start:$T(1):$stop instead.", :colon)
+    colon(start, T(1), stop)
+end
+
+# when this deprecation is deleted, remove all calls to it, and all
+# negate=nothing keyword arguments, from base/dates/adjusters.jl
+eval(Dates, quote
+    function deprecate_negate(f, func, sig, negate)
+        if negate === nothing
+            return func
+        else
+            msg = "$f($sig; negate=$negate) is deprecated, use $f("
+            negate && (msg *= "!")
+            msg *= "$sig) instead."
+            Base.depwarn(msg, f)
+            return negate ? !func : func
+        end
+    end
+end)
 
 # End deprecations scheduled for 0.6

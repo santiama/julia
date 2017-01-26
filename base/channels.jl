@@ -59,7 +59,7 @@ Channel(sz) = Channel{Any}(sz)
     Channel(func::Function; ctype=Any, csize=0, taskref=nothing)
 
 Creates a new task from `func`, binds it to a new channel of type
-`ctype` and size `csize`, schedules the task, all in a single call.
+`ctype` and size `csize`, and schedules the task, all in a single call.
 
 `func` must accept the bound channel as its only argument.
 
@@ -71,8 +71,8 @@ Returns a Channel.
 ```jldoctest
 julia> chnl = Channel(c->foreach(i->put!(c,i), 1:4));
 
-julia> @show typeof(chnl);
-typeof(chnl) = Channel{Any}
+julia> typeof(chnl)
+Channel{Any}
 
 julia> for i in chnl
            @show i
@@ -81,7 +81,6 @@ i = 1
 i = 2
 i = 3
 i = 4
-
 ```
 
 An example of referencing the created task:
@@ -91,17 +90,14 @@ julia> taskref = Ref{Task}();
 
 julia> chnl = Channel(c->(@show take!(c)); taskref=taskref);
 
-julia> task = taskref[];
-
-julia> @show istaskdone(task);
-istaskdone(task) = false
+julia> istaskdone(taskref[])
+false
 
 julia> put!(chnl, "Hello");
 take!(c) = "Hello"
 
-julia> @show istaskdone(task);
-istaskdone(task) = true
-
+julia> istaskdone(taskref[])
+true
 ```
 """
 function Channel(func::Function; ctype=Any, csize=0, taskref=nothing)
@@ -111,7 +107,7 @@ function Channel(func::Function; ctype=Any, csize=0, taskref=nothing)
     schedule(task)
     yield()
 
-    isa(taskref, Ref{Task}) && (taskref.x = task)
+    isa(taskref, Ref{Task}) && (taskref[] = task)
     return chnl
 end
 
@@ -158,7 +154,7 @@ Terminating tasks have no effect on already closed Channel objects.
 
 When a channel is bound to multiple tasks, the first task to terminate will
 close the channel. When multiple channels are bound to the same task,
-termination of the task will close all channels.
+termination of the task will close all of the bound channels.
 
 ```jldoctest
 julia> c = Channel(0);
@@ -175,9 +171,8 @@ i = 2
 i = 3
 i = 4
 
-julia> @show isopen(c);
-isopen(c) = false
-
+julia> isopen(c)
+false
 ```
 
 ```jldoctest
@@ -187,14 +182,14 @@ julia> task = @schedule (put!(c,1);error("foo"));
 
 julia> bind(c,task);
 
-julia> take!(c);
+julia> take!(c)
+1
 
 julia> put!(c,1);
 ERROR: foo
 Stacktrace:
  [1] check_channel_state(::Channel{Any}) at ./channels.jl:129
  [2] put!(::Channel{Any}, ::Int64) at ./channels.jl:247
-
 ```
 """
 function bind(c::Channel, task::Task)
@@ -223,7 +218,7 @@ function channeled_tasks(n::Int, funcs...; ctypes=fill(Any,n), csizes=fill(0,n))
 
     # bind all tasks to all channels and schedule them
     foreach(t -> foreach(c -> bind(c,t), chnls), tasks)
-    foreach(t->schedule(t), tasks)
+    foreach(schedule, tasks)
 
     yield()  # Allow scheduled tasks to run
 

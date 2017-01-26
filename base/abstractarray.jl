@@ -89,8 +89,7 @@ julia> extrema(b)
 """
 linearindices(A)                 = (@_inline_meta; OneTo(_length(A)))
 linearindices(A::AbstractVector) = (@_inline_meta; indices1(A))
-eltype{T}(::Type{AbstractArray{T}}) = T
-eltype{T,N}(::Type{AbstractArray{T,N}}) = T
+eltype(::Type{A}) where A<:AbstractArray{E} where E  = E
 elsize{T}(::AbstractArray{T}) = sizeof(T)
 
 """
@@ -121,10 +120,10 @@ julia> length(A)
 60
 ```
 """
-length(t::AbstractArray) = prod(size(t))
-_length(A::AbstractArray) = prod(map(unsafe_length, indices(A))) # circumvent missing size
-_length(A) = length(A)
-endof(a::AbstractArray) = length(a)
+length(t::AbstractArray) = (@_inline_meta; prod(size(t)))
+_length(A::AbstractArray) = (@_inline_meta; prod(map(unsafe_length, indices(A)))) # circumvent missing size
+_length(A) = (@_inline_meta; length(A))
+endof(a::AbstractArray) = (@_inline_meta; length(a))
 first(a::AbstractArray) = a[first(eachindex(a))]
 
 """
@@ -204,7 +203,7 @@ julia> strides(A)
 ```
 """
 strides(A::AbstractArray) = _strides((1,), A)
-_strides{T,N}(out::NTuple{N}, A::AbstractArray{T,N}) = out
+_strides{T,N}(out::NTuple{N,Any}, A::AbstractArray{T,N}) = out
 function _strides{M,T,N}(out::NTuple{M}, A::AbstractArray{T,N})
     @_inline_meta
     _strides((out..., out[M]*size(A, M)), A)
@@ -267,6 +266,7 @@ should define `linearindexing` in the type-domain:
     Base.linearindexing{T<:MyArray}(::Type{T}) = Base.LinearFast()
 """
 linearindexing(A::AbstractArray) = linearindexing(typeof(A))
+linearindexing(::Type{Union{}}) = LinearFast()
 linearindexing{T<:AbstractArray}(::Type{T}) = LinearSlow()
 linearindexing{T<:Array}(::Type{T}) = LinearFast()
 linearindexing{T<:Range}(::Type{T}) = LinearFast()
@@ -305,6 +305,11 @@ See also [`checkindex`](@ref).
 function checkbounds(::Type{Bool}, A::AbstractArray, I...)
     @_inline_meta
     checkbounds_indices(Bool, indices(A), I)
+end
+# Linear indexing is explicitly allowed when there is only one (non-cartesian) index
+function checkbounds(::Type{Bool}, A::AbstractArray, i)
+    @_inline_meta
+    checkindex(Bool, linearindices(A), i)
 end
 # As a special extension, allow using logical arrays that match the source array exactly
 function checkbounds{_,N}(::Type{Bool}, A::AbstractArray{_,N}, I::AbstractArray{Bool,N})
@@ -358,7 +363,21 @@ function checkbounds_indices(::Type{Bool}, IA::Tuple{Any}, I::Tuple{Any})
 end
 function checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple{Any})
     @_inline_meta
-    checkindex(Bool, OneTo(trailingsize(IA)), I[1])  # linear indexing
+    checkbounds_linear_indices(Bool, IA, I[1])
+end
+function checkbounds_linear_indices(::Type{Bool}, IA::Tuple, i)
+    @_inline_meta
+    if checkindex(Bool, IA[1], i)
+        return true
+    elseif checkindex(Bool, OneTo(trailingsize(IA)), i)  # partial linear indexing
+        partial_linear_indexing_warning_lookup(length(IA))
+        return true # TODO: Return false after the above function is removed in deprecated.jl
+    end
+    return false
+end
+function checkbounds_linear_indices(::Type{Bool}, IA::Tuple, i::Union{Slice,Colon})
+    partial_linear_indexing_warning_lookup(length(IA))
+    true
 end
 checkbounds_indices(::Type{Bool}, ::Tuple, ::Tuple{}) = true
 
@@ -644,29 +663,6 @@ function copy!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{
     return B
 end
 
-function copy_transpose!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{Int},
-                              A::AbstractVecOrMat{S}, ir_src::Range{Int}, jr_src::Range{Int})
-    if length(ir_dest) != length(jr_src)
-        throw(ArgumentError(string("source and destination must have same size (got ",
-                                   length(jr_src)," and ",length(ir_dest),")")))
-    end
-    if length(jr_dest) != length(ir_src)
-        throw(ArgumentError(string("source and destination must have same size (got ",
-                                   length(ir_src)," and ",length(jr_dest),")")))
-    end
-    @boundscheck checkbounds(B, ir_dest, jr_dest)
-    @boundscheck checkbounds(A, ir_src, jr_src)
-    idest = first(ir_dest)
-    for jsrc in jr_src
-        jdest = first(jr_dest)
-        for isrc in ir_src
-            B[idest,jdest] = A[isrc,jsrc]
-            jdest += step(jr_dest)
-        end
-        idest += step(ir_dest)
-    end
-    return B
-end
 
 """
     copymutable(a)
@@ -1018,8 +1014,6 @@ promote_eltype(v1, vs...) = promote_type(eltype(v1), promote_eltype(vs...))
 #TODO: ERROR CHECK
 cat(catdim::Integer) = Array{Any,1}(0)
 
-vcat() = Array{Any,1}(0)
-hcat() = Array{Any,1}(0)
 typed_vcat{T}(::Type{T}) = Array{T,1}(0)
 typed_hcat{T}(::Type{T}) = Array{T,1}(0)
 
